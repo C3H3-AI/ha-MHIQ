@@ -14,6 +14,8 @@ from .const import (
     CONF_ENABLE_WEATHER,
     CONF_IDENTITY_ID,
     CONF_IOT_TOKEN,
+    CONF_PASSWORD,
+    CONF_PHONE,
     CONF_PROVINCE,
     CONF_REFRESH_TOKEN,
     CONF_SUB_LOCALITY,
@@ -33,10 +35,23 @@ def _get_platforms(entry: ConfigEntry) -> list[Platform]:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})
+
+    async def _on_tokens_changed(tokens: dict):
+        data = dict(entry.data)
+        data[CONF_IDENTITY_ID] = tokens.get("identity_id", data.get(CONF_IDENTITY_ID, ""))
+        data[CONF_REFRESH_TOKEN] = tokens.get("refresh_token", data.get(CONF_REFRESH_TOKEN, ""))
+        hass.config_entries.async_update_entry(entry, data=data)
+        _LOGGER.info("Persisted refreshed tokens to config entry")
+
     session = aiohttp_client.async_get_clientsession(hass)
     identity_id = entry.data.get(CONF_IDENTITY_ID, "")
     refresh_token = entry.data.get(CONF_REFRESH_TOKEN, "")
-    api = SlacApi(session, identity_id, refresh_token)
+    api = SlacApi(session, identity_id, refresh_token, on_token_refresh=_on_tokens_changed)
+
+    phone = entry.data.get(CONF_PHONE, "")
+    password = entry.data.get(CONF_PASSWORD, "")
+    if phone and password:
+        api.set_login_credentials(phone, password)
     stored_iot = entry.data.get(CONF_IOT_TOKEN, "")
     if stored_iot:
         api.set_iot_token(stored_iot)
@@ -122,6 +137,13 @@ class SlacCoordinator(DataUpdateCoordinator):
                     await self.api.async_refresh_iot_token()
                 except Exception as e:
                     _LOGGER.warning("Token refresh failed: %s", e)
+
+            if not self.api.iot_token and self.api.has_login_credentials():
+                _LOGGER.warning("Token unavailable, attempting auto re-login...")
+                if await self.api.async_auto_login():
+                    _LOGGER.info("Auto re-login successful, new tokens persisted")
+                else:
+                    _LOGGER.warning("Auto re-login failed, credentials may be invalid")
 
             try:
                 device_list = await self.api.async_get_device_list_custom()

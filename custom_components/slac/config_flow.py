@@ -33,6 +33,8 @@ class SlacConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._identity_id: str = ""
         self._refresh_token: str = ""
         self._iot_token: str = ""
+        self._phone: str = ""
+        self._password: str = ""
 
     @staticmethod
     def async_get_options_flow(config_entry):
@@ -61,6 +63,8 @@ class SlacConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self._identity_id = api.identity_id
                 self._refresh_token = api.refresh_token
                 self._iot_token = api.iot_token
+                self._phone = user_input[CONF_PHONE]
+                self._password = user_input[CONF_PASSWORD]
                 self._enable_weather = user_input.get(CONF_ENABLE_WEATHER, True)
                 return await self._finalize()
         return self.async_show_form(
@@ -98,6 +102,8 @@ class SlacConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             CONF_PROVINCE: "",
             CONF_CITY: "",
             CONF_SUB_LOCALITY: "",
+            CONF_PHONE: self._phone,
+            CONF_PASSWORD: self._password,
         }
         if self._iot_token:
             data[CONF_IOT_TOKEN] = self._iot_token
@@ -137,6 +143,8 @@ class SlacConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 CONF_PROVINCE: province,
                 CONF_CITY: city,
                 CONF_SUB_LOCALITY: sub_locality,
+                CONF_PHONE: self._phone,
+                CONF_PASSWORD: self._password,
             }
             if self._iot_token:
                 data[CONF_IOT_TOKEN] = self._iot_token

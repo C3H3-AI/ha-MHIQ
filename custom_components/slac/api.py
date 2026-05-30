@@ -168,6 +168,8 @@ class SlacApi:
         self._iot_token = ""
         self._iot_token_expire = 0
         self._on_token_refresh = on_token_refresh
+        self._phone: str = ""
+        self._password: str = ""
 
     async def _iot_request(self, path: str, body: str, retry: int = 0) -> dict:
         url = f"{IOT_API_HOST}{path}"
@@ -397,6 +399,23 @@ class SlacApi:
     def set_credentials(self, identity_id: str, refresh_token: str):
         self._identity_id = identity_id
         self._refresh_token = refresh_token
+
+    def set_login_credentials(self, phone: str, password: str):
+        self._phone = phone
+        self._password = password
+
+    def has_login_credentials(self) -> bool:
+        return bool(self._phone and self._password)
+
+    async def async_auto_login(self) -> bool:
+        if not self.has_login_credentials():
+            return False
+        try:
+            await self.async_login(self._phone, self._password)
+            return True
+        except Exception as e:
+            _LOGGER.warning("Auto login failed: %s", e)
+            return False
 
     def set_iot_token(self, iot_token: str, expires_in: int = 72000):
         self._iot_token = iot_token

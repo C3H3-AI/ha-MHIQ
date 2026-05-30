@@ -169,7 +169,7 @@ class SlacConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 class SlacOptionsFlow(config_entries.OptionsFlow):
     def __init__(self, config_entry):
-        pass
+        self._reload_after_location = False
 
     async def async_step_init(self, user_input: dict | None = None) -> FlowResult:
         if user_input is not None:
@@ -198,6 +198,14 @@ class SlacOptionsFlow(config_entries.OptionsFlow):
             data = dict(self.config_entry.data)
             data[CONF_ENABLE_WEATHER] = user_input[CONF_ENABLE_WEATHER]
             self.hass.config_entries.async_update_entry(self.config_entry, data=data)
+
+            if user_input[CONF_ENABLE_WEATHER]:
+                has_province = data.get(CONF_PROVINCE, "") or self.config_entry.options.get(CONF_PROVINCE, "")
+                has_city = data.get(CONF_CITY, "") or self.config_entry.options.get(CONF_CITY, "")
+                if not has_province and not has_city:
+                    self._reload_after_location = True
+                    return await self.async_step_location()
+
             await self.hass.config_entries.async_reload(self.config_entry.entry_id)
             return self.async_create_entry(title="", data={})
 
@@ -216,7 +224,14 @@ class SlacOptionsFlow(config_entries.OptionsFlow):
             data[CONF_PROVINCE] = user_input.get(CONF_PROVINCE, "")
             data[CONF_CITY] = user_input.get(CONF_CITY, "")
             data[CONF_SUB_LOCALITY] = user_input.get(CONF_SUB_LOCALITY, "")
-            self.hass.config_entries.async_update_entry(self.config_entry, data=data)
+            if self._reload_after_location:
+                self._reload_after_location = False
+                if not data.get(CONF_PROVINCE, "") and not data.get(CONF_CITY, ""):
+                    data[CONF_ENABLE_WEATHER] = False
+                self.hass.config_entries.async_update_entry(self.config_entry, data=data)
+                await self.hass.config_entries.async_reload(self.config_entry.entry_id)
+            else:
+                self.hass.config_entries.async_update_entry(self.config_entry, data=data)
             return self.async_create_entry(title="", data={})
         current_province = self.config_entry.data.get(CONF_PROVINCE, "")
         current_city = self.config_entry.data.get(CONF_CITY, "")

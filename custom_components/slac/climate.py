@@ -17,7 +17,6 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from . import SlacCoordinator
 from .const import (
     AC_MODE_HA_MAP,
-    DEVICE_TYPE_AC,
     DOMAIN,
     HA_MODE_TO_AC,
 )
@@ -32,8 +31,11 @@ async def async_setup_entry(
     coordinator: SlacCoordinator = hass.data[DOMAIN][entry.entry_id]
     entities = []
     seen = set()
+    module_iot_id = ""
     for device in coordinator.devices:
         iot_id = device.get("iotId", "")
+        if iot_id:
+            module_iot_id = iot_id
         nick_name = device.get("nickName", "") or device.get("deviceName", "") or "SLAC 设备"
         internal_addr = device.get("internalAddress", -1)
         unit_key = f"Info{internal_addr}"
@@ -48,21 +50,35 @@ async def async_setup_entry(
         else:
             _LOGGER.debug("SLAC climate skip %s: unit_key %s not in props keys=%s",
                           nick_name, unit_key, list(props.keys()))
+
+    if module_iot_id:
+        device_registry = dr.async_get(hass)
+        detail = coordinator.device_detail or {}
+        module_name = detail.get("productName", "三菱中央空调")
+        product_model = detail.get("productModel", "W3M")
+        device_registry.async_get_or_create(
+            config_entry_id=entry.entry_id,
+            identifiers={(DOMAIN, module_iot_id)},
+            name=f"{module_name} (智能控制模块)",
+            manufacturer="三菱重工海尔",
+            model=f"SC-MIAS-{product_model}",
+            configuration_url="https://slacapp2.mhaq.cn",
+        )
+
     _LOGGER.info("SLAC climate async_setup_entry created %d entities", len(entities))
     if entities:
         async_add_entities(entities)
 
-    # 清理旧版 unique_id 格式的实体注册表条目
     entity_registry = er.async_get(hass)
     old_unique_ids = {f"{iot_id}_Info{addr}" for addr in range(9)}
     _to_remove = [
         entity_id
-        for entity_id, entry in entity_registry.entities.items()
-        if entry.platform == DOMAIN and entry.domain == "climate"
-        and entry.unique_id in old_unique_ids
+        for entity_id, e_entry in entity_registry.entities.items()
+        if e_entry.platform == DOMAIN and e_entry.domain == "climate"
+        and e_entry.unique_id in old_unique_ids
     ]
     for entity_id in _to_remove:
-        _LOGGER.info("Removing old-style climate entity: %s (unique_id=%s)", entity_id, entity_registry.entities.get(entity_id, entry).unique_id if entity_registry.entities.get(entity_id) else "?")
+        _LOGGER.info("Removing old-style climate entity: %s", entity_id)
         entity_registry.async_remove(entity_id)
 
 
@@ -75,22 +91,18 @@ HVAC_ACTION_MAP = {
 
 
 def build_device_info(coordinator: SlacCoordinator, device: dict) -> dict:
-    detail = coordinator.device_detail or {}
-    mac = device.get("mac", "")
-    firmware = device.get("firmwareVersion", "")
-    product_model = detail.get("productModel", "W3M")
-    category_name = detail.get("categoryName", "空调")
-    product_name = detail.get("productName", "三菱中央空调")
+    iot_id = device.get("iotId", "")
+    internal_addr = device.get("internalAddress", -1)
+    nick_name = device.get("nickName", "") or device.get("deviceName", "") or "SLAC 设备"
+    is_floor = internal_addr >= 8
     info = {
-        "identifiers": {(DOMAIN, device.get("iotId", ""))},
-        "name": product_name,
-        "manufacturer": "三菱电机 Mitsubishi Electric",
-        "model": f"{product_model} {category_name}",
-        "sw_version": firmware,
+        "identifiers": {(DOMAIN, f"{iot_id}_ac_{internal_addr}")},
+        "via_device": (DOMAIN, iot_id),
+        "name": nick_name,
+        "manufacturer": "三菱重工海尔",
+        "model": "地暖模块" if is_floor else "室内机",
         "configuration_url": "https://slacapp2.mhaq.cn",
     }
-    if mac:
-        info["connections"] = {(dr.CONNECTION_NETWORK_MAC, mac)}
     return info
 
 

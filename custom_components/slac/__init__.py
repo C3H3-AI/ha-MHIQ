@@ -177,6 +177,9 @@ class SlacCoordinator(DataUpdateCoordinator):
                                     else:
                                         parsed[key] = val
                                 self.device_properties[iot_id] = parsed
+                                if not getattr(self, '_log_props_dumped', False):
+                                    _LOGGER.info("Full device properties for %s: %s", iot_id, parsed)
+                                    self._log_props_dumped = True
                         except Exception as e:
                             _LOGGER.debug("Failed to get props for %s: %s", iot_id, e)
 

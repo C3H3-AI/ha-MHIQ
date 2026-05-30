@@ -357,13 +357,21 @@ class SlacApi:
             device_list = result
         return device_list
 
-    async def async_get_properties(self, iot_id: str) -> dict:
+    async def async_get_properties(self, iot_id: str, log_all: bool = False) -> dict:
+        _LOGGER.info("Fetching properties for iot_id=%s", iot_id)
         body = make_iot_request_body(
             api_ver="1.0.2",
             params={"iotId": iot_id},
             iot_token=self._iot_token,
         )
-        return await self._iot_request(API_GET_PROPERTIES, body)
+        try:
+            result = await self._iot_request(API_GET_PROPERTIES, body)
+        except Exception as e:
+            _LOGGER.warning("Failed to fetch properties: %s", e)
+            return {}
+        if log_all or _LOGGER.isEnabledFor(logging.DEBUG):
+            _LOGGER.debug("Full properties response: %s", result)
+        return result
 
     async def async_set_properties(self, iot_id: str, items: dict) -> dict:
         body = make_iot_request_body(

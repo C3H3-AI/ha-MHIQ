@@ -12,3 +12,7 @@
 .vscode/
 .env
 temp/
+*.md.bak
+# Internal development notes - NOT for public repo
+REVERSE_ENGINEERING_RECORD.md
+SLAC_PROJECT_STATUS.md

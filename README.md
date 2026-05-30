@@ -5,10 +5,10 @@
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 [![GitHub](https://img.shields.io/badge/GitHub-C3H3--AI-blue)](https://github.com/C3H3-AI/ha-MHIQ)
 
-Home Assistant custom integration for **Mitsubishi Heavy Industries Haier (三菱海尔重工)** smart air conditioners using the **SC-MIAS-W3M** WiFi module.
+Home Assistant custom integration for **Mitsubishi Heavy Industries Haier (三菱重工海尔)** smart air conditioners using the **SC-MIAS-W3M** WiFi module.
 
-> **Model**: SC-MIAS-W3M (三菱海尔重工 WiFi module)
-> **Brand**: MHIQ — Mitsubishi Heavy Industries Haier (三菱海尔重工)
+> **Model**: SC-MIAS-W3M (三菱重工海尔 WiFi module)
+> **Brand**: MHIQ — Mitsubishi Heavy Industries Haier (三菱重工海尔)
 > **App**: SLAC (三菱智能空调)
 
 ---

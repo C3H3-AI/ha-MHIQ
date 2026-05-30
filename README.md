@@ -72,9 +72,9 @@ Alternatively, manually enter:
 
 | Field | Description | Example |
 |-------|-------------|---------|
-| Province | Province name | Zhejiang |
-| City | City name | Wenzhou |
-| District | District/county | Yueqing |
+| Province | Province name | Jiangsu |
+| City | City name | Nanjing |
+| District | District/county | Gulou |
 
 ### Post-Install Options
 

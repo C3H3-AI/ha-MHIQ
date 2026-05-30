@@ -147,6 +147,7 @@ class SlacConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
             if not province and not city:
                 _LOGGER.warning("Location detection failed, disabling weather service")
+                self._enable_weather = False
                 return await self._async_create_entry()
 
             session = aiohttp_client.async_get_clientsession(self.hass)

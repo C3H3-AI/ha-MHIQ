@@ -1,0 +1,117 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "三菱智能空调",
+        "description": "使用三菱 SLAC APP 的手机号和密码登录",
+        "data": {
+          "phone": "手机号",
+          "password": "密码"
+        }
+      },
+      "manual": {
+        "title": "手动输入凭证",
+        "description": "从手机抓包获取 identityId 和 refreshToken",
+        "data": {
+          "identity_id": "Identity ID",
+          "refresh_token": "Refresh Token"
+        }
+      },
+      "login": {
+        "title": "手机号登录",
+        "description": "使用三菱 SLAC APP 的手机号和密码登录",
+        "data": {
+          "phone": "手机号",
+          "password": "密码",
+          "enable_weather": "启用天气服务"
+        }
+      },
+      "location": {
+        "title": "天气地区设置",
+        "description": "设置天气查询的地区（留空则从 HA 系统地址读取）",
+        "data": {
+          "province": "省份",
+          "city": "城市",
+          "sub_locality": "区/县"
+        }
+      }
+    },
+    "error": {
+      "login_failed": "登录失败，请检查手机号和密码",
+      "cannot_connect": "无法连接服务器",
+      "invalid_auth": "认证无效"
+    },
+    "abort": {
+      "already_configured": "该账号已配置"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "三菱智能空调设置",
+        "data": {
+          "action": "操作"
+        }
+      },
+      "location": {
+        "title": "天气地区设置",
+        "description": "设置天气查询的地区（留空则从 HA 系统地址读取）",
+        "data": {
+          "province": "省份",
+          "city": "城市",
+          "sub_locality": "区/县"
+        }
+      },
+      "relogin": {
+        "title": "重新登录",
+        "description": "使用手机号和密码重新登录以刷新凭证",
+        "data": {
+          "phone": "手机号",
+          "password": "密码"
+        }
+      },
+      "weather_toggle": {
+        "title": "开关天气服务",
+        "description": "启用或关闭天气传感器",
+        "data": {
+          "enable_weather": "启用天气服务"
+        }
+      }
+    },
+    "error": {
+      "login_failed": "登录失败，请检查手机号和密码",
+      "cannot_connect": "无法连接服务器"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "weather_location": {
+        "name": "天气地区"
+      },
+      "outdoor_temp": {
+        "name": "室外温度"
+      },
+      "weather_cond": {
+        "name": "天气状况"
+      },
+      "air_quality": {
+        "name": "空气质量"
+      },
+      "pm25": {
+        "name": "PM2.5"
+      },
+      "temp_max": {
+        "name": "最高温度"
+      },
+      "temp_min": {
+        "name": "最低温度"
+      },
+      "comfort": {
+        "name": "舒适度"
+      },
+      "wind": {
+        "name": "风力"
+      }
+    }
+  }
+}

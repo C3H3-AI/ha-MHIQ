@@ -1,0 +1,11 @@
+{
+  "domain": "slac",
+  "name": "三菱智能空调",
+  "version": "1.0.0",
+  "config_flow": true,
+  "documentation": "https://github.com/C3H3-AI/ha-MHIQ",
+  "requirements": ["cryptography>=41.0.0"],
+  "codeowners": ["@SOLO"],
+  "integration_type": "device",
+  "iot_class": "cloud_polling"
+}

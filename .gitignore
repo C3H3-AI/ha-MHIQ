@@ -1,0 +1,14 @@
+# __pycache__/
+*.pyc
+*.pyo
+*.py[cod]
+*.bak
+*.orig
+*~
+*.swp
+*.swo
+.DS_Store
+.idea/
+.vscode/
+.env
+temp/

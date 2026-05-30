@@ -1,0 +1,117 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Mitsubishi Smart AC",
+        "description": "Login with your Mitsubishi SLAC APP phone number and password",
+        "data": {
+          "phone": "Phone number",
+          "password": "Password"
+        }
+      },
+      "manual": {
+        "title": "Manual credentials",
+        "description": "Get identityId and refreshToken from packet capture",
+        "data": {
+          "identity_id": "Identity ID",
+          "refresh_token": "Refresh Token"
+        }
+      },
+      "login": {
+        "title": "Phone login",
+        "description": "Login with your Mitsubishi SLAC APP phone number and password",
+        "data": {
+          "phone": "Phone number",
+          "password": "Password",
+          "enable_weather": "Enable weather service"
+        }
+      },
+      "location": {
+        "title": "Weather location",
+        "description": "Set the region for weather queries (leave empty to use HA system address)",
+        "data": {
+          "province": "Province",
+          "city": "City",
+          "sub_locality": "District"
+        }
+      }
+    },
+    "error": {
+      "login_failed": "Login failed, please check your phone number and password",
+      "cannot_connect": "Cannot connect to server",
+      "invalid_auth": "Invalid authentication"
+    },
+    "abort": {
+      "already_configured": "This account is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Mitsubishi Smart AC Settings",
+        "data": {
+          "action": "Action"
+        }
+      },
+      "location": {
+        "title": "Weather location",
+        "description": "Set the region for weather queries (leave empty to use HA system address)",
+        "data": {
+          "province": "Province",
+          "city": "City",
+          "sub_locality": "District"
+        }
+      },
+      "relogin": {
+        "title": "Re-login",
+        "description": "Re-login with phone number and password to refresh credentials",
+        "data": {
+          "phone": "Phone number",
+          "password": "Password"
+        }
+      },
+      "weather_toggle": {
+        "title": "Toggle weather service",
+        "description": "Enable or disable weather sensors",
+        "data": {
+          "enable_weather": "Enable weather service"
+        }
+      }
+    },
+    "error": {
+      "login_failed": "Login failed, please check your phone number and password",
+      "cannot_connect": "Cannot connect to server"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "weather_location": {
+        "name": "Weather location"
+      },
+      "outdoor_temp": {
+        "name": "Outdoor temperature"
+      },
+      "weather_cond": {
+        "name": "Weather condition"
+      },
+      "air_quality": {
+        "name": "Air quality"
+      },
+      "pm25": {
+        "name": "PM2.5"
+      },
+      "temp_max": {
+        "name": "Max temperature"
+      },
+      "temp_min": {
+        "name": "Min temperature"
+      },
+      "comfort": {
+        "name": "Comfort level"
+      },
+      "wind": {
+        "name": "Wind"
+      }
+    }
+  }
+}

@@ -121,8 +121,6 @@ Enabled only if weather service is toggled on.
 ## Credits
 
 - **Author**: [C3H3-AI](https://github.com/C3H3-AI)
-- **Brand**: MHIQ — Mitsubishi Heavy Industries Haier (三菱海尔重工)
-- **WiFi Module**: SC-MIAS-W3M
 
 ---
 

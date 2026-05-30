@@ -2,7 +2,6 @@ import json
 import logging
 from datetime import timedelta
 
-import aiohttp
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
@@ -30,42 +29,6 @@ def _get_platforms(entry: ConfigEntry) -> list[Platform]:
     if entry.data.get(CONF_ENABLE_WEATHER, True):
         platforms.append(Platform.SENSOR)
     return platforms
-
-
-async def _get_location_from_hass(hass: HomeAssistant) -> tuple[str, str, str]:
-    """从 HA 经纬度反查省市区的懒加载位置。
-
-    使用 Nominatim 免费服务，结果应持久化到 entry.data 避免重复调用。
-    """
-    try:
-        latitude = hass.config.latitude
-        longitude = hass.config.longitude
-        if not latitude or not longitude:
-            return "", "", ""
-
-        session = aiohttp_client.async_get_clientsession(hass)
-        url = f"https://nominatim.openstreetmap.org/reverse?lat={latitude}&lon={longitude}&format=json&accept-language=zh-CN"
-        headers = {"User-Agent": "slac-ha-integration/1.0"}
-        async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-            if resp.status == 200:
-                data = await resp.json()
-                display_name = data.get("display_name", "")
-                parts = [p.strip() for p in display_name.split(",")]
-                if len(parts) >= 5:
-                    province = parts[-3]
-                    city = parts[-4]
-                    district = parts[-5]
-                    _LOGGER.info("Reverse geocoded: %s %s %s", province, city, district)
-                    return province, city, district
-                address = data.get("address", {})
-                state = address.get("state", "")
-                city = address.get("city", address.get("county", ""))
-                suburb = address.get("suburb", address.get("town", address.get("village", "")))
-                return state, city, suburb
-        return "", "", ""
-    except Exception as e:
-        _LOGGER.warning("Reverse geocoding failed: %s", e)
-        return "", "", ""
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -108,31 +71,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     province = options_province or province
     city = options_city or city
     sub_locality = options_sub or sub_locality
-
-    # 用户未配置地区时，尝试从 HA 经纬度反查并持久化
-    location_persisted = False
-    if not province and not city:
-        ha_province, ha_city, ha_sub = await _get_location_from_hass(hass)
-        province = province or ha_province
-        city = city or ha_city
-        sub_locality = sub_locality or ha_sub
-        _LOGGER.info("Using HA location: %s %s %s", province, city, sub_locality)
-        # 将反查结果持久化到 entry.data，避免每次重启重复调用 Nominatim
-        if province or city:
-            new_data = dict(entry.data)
-            new_data[CONF_PROVINCE] = province
-            new_data[CONF_CITY] = city
-            new_data[CONF_SUB_LOCALITY] = sub_locality
-            hass.config_entries.async_update_entry(entry, data=new_data)
-            location_persisted = True
-            _LOGGER.info("Persisted geocoded location to entry data")
-
-    if not province and not city:
-        _LOGGER.warning(
-            "No location configured and HA geocoding failed. "
-            "Weather data will be unavailable. "
-            "Configure province/city in integration options."
-        )
 
     api.province = province
     api.city = city

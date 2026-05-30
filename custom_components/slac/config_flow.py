@@ -74,33 +74,6 @@ class SlacConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             description_placeholders={"name": PLATFORM_NAME},
         )
 
-    async def _get_location_from_hass(self) -> tuple[str, str, str]:
-        try:
-            latitude = self.hass.config.latitude
-            longitude = self.hass.config.longitude
-            if not latitude or not longitude:
-                return "", "", ""
-
-            session = aiohttp_client.async_get_clientsession(self.hass)
-            url = (
-                "https://nominatim.openstreetmap.org/reverse"
-                f"?lat={latitude}&lon={longitude}&format=json&accept-language=zh-CN"
-            )
-            headers = {"User-Agent": "slac-ha-integration/1.0"}
-            async with session.get(url, headers=headers, timeout=10) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    address = data.get("address", {})
-                    state = address.get("state", "")
-                    city = address.get("city", address.get("county", ""))
-                    suburb = address.get("suburb", address.get("town", address.get("village", "")))
-                    _LOGGER.info("Reverse geocoded from HA: %s %s %s", state, city, suburb)
-                    return state, city, suburb
-            return "", "", ""
-        except Exception as e:
-            _LOGGER.warning("Reverse geocoding failed: %s", e)
-            return "", "", ""
-
     async def _finalize(self) -> FlowResult:
         if not self._enable_weather:
             return await self._async_create_entry()
@@ -142,11 +115,7 @@ class SlacConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             city = user_input.get(CONF_CITY, "")
             sub_locality = user_input.get(CONF_SUB_LOCALITY, "")
             if not province and not city:
-                province, city, sub_locality = await self._get_location_from_hass()
-                _LOGGER.info("Auto-detected location: %s %s %s", province, city, sub_locality)
-
-            if not province and not city:
-                _LOGGER.warning("Location detection failed, disabling weather service")
+                _LOGGER.warning("Location empty, disabling weather service")
                 self._enable_weather = False
                 return await self._async_create_entry()
 
@@ -178,16 +147,15 @@ class SlacConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             _LOGGER.info("Creating entry with data keys: %s", list(data.keys()))
             return self.async_create_entry(title="三菱智能空调 (Mitsubishi Smart AC)", data=data)
 
-        ha_province, ha_city, ha_sub = await self._get_location_from_hass()
         return self.async_show_form(
             step_id="location",
             data_schema=vol.Schema({
-                vol.Optional(CONF_PROVINCE, default=ha_province): TextSelector(TextSelectorConfig(type="text")),
-                vol.Optional(CONF_CITY, default=ha_city): TextSelector(TextSelectorConfig(type="text")),
-                vol.Optional(CONF_SUB_LOCALITY, default=ha_sub): TextSelector(TextSelectorConfig(type="text")),
+                vol.Optional(CONF_PROVINCE, default=""): TextSelector(TextSelectorConfig(type="text")),
+                vol.Optional(CONF_CITY, default=""): TextSelector(TextSelectorConfig(type="text")),
+                vol.Optional(CONF_SUB_LOCALITY, default=""): TextSelector(TextSelectorConfig(type="text")),
             }),
             errors=errors,
-            description_placeholders={"name": "天气地区设置（留空则从 HA 系统地址读取）"},
+            description_placeholders={"name": "天气地区设置（留空则不启用）"},
         )
 
 
@@ -252,7 +220,7 @@ class SlacOptionsFlow(config_entries.OptionsFlow):
                 vol.Optional(CONF_CITY, default=current_city): TextSelector(TextSelectorConfig(type="text")),
                 vol.Optional(CONF_SUB_LOCALITY, default=current_sub): TextSelector(TextSelectorConfig(type="text")),
             }),
-            description_placeholders={"name": "天气地区设置（留空则从 HA 系统地址读取）"},
+            description_placeholders={"name": "天气地区设置（留空则不启用）"},
         )
 
     async def async_step_relogin(self, user_input: dict | None = None) -> FlowResult:

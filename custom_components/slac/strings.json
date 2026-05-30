@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Mitsubishi Smart AC",
-        "description": "Login with your Mitsubishi SLAC APP phone number and password",
+        "description": "Log in using your Mitsubishi Smart AC app phone number and password",
         "data": {
           "phone": "Phone number",
           "password": "Password"
@@ -19,7 +19,7 @@
       },
       "login": {
         "title": "Phone login",
-        "description": "Login with your Mitsubishi SLAC APP phone number and password",
+        "description": "Log in using your Mitsubishi Smart AC app phone number and password",
         "data": {
           "phone": "Phone number",
           "password": "Password",
@@ -28,7 +28,7 @@
       },
       "location": {
         "title": "Weather location",
-        "description": "Set the region for weather queries (leave empty to use HA system address)",
+        "description": "Set the region for weather queries (leave empty to skip weather service)",
         "data": {
           "province": "Province",
           "city": "City",
@@ -55,7 +55,7 @@
       },
       "location": {
         "title": "Weather location",
-        "description": "Set the region for weather queries (leave empty to use HA system address)",
+        "description": "Set the region for weather queries (leave empty to skip weather service)",
         "data": {
           "province": "Province",
           "city": "City",

@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "三菱智能空调",
-        "description": "使用三菱 SLAC APP 的手机号和密码登录",
+        "description": "使用三菱智能空调 APP 的手机号和密码登录",
         "data": {
           "phone": "手机号",
           "password": "密码"
@@ -19,7 +19,7 @@
       },
       "login": {
         "title": "手机号登录",
-        "description": "使用三菱 SLAC APP 的手机号和密码登录",
+        "description": "使用三菱智能空调 APP 的手机号和密码登录",
         "data": {
           "phone": "手机号",
           "password": "密码",
@@ -28,7 +28,7 @@
       },
       "location": {
         "title": "天气地区设置",
-        "description": "设置天气查询的地区（留空则从 HA 系统地址读取）",
+        "description": "设置天气查询的地区（留空则不启用天气服务）",
         "data": {
           "province": "省份",
           "city": "城市",
@@ -55,7 +55,7 @@
       },
       "location": {
         "title": "天气地区设置",
-        "description": "设置天气查询的地区（留空则从 HA 系统地址读取）",
+        "description": "设置天气查询的地区（留空则不启用天气服务）",
         "data": {
           "province": "省份",
           "city": "城市",

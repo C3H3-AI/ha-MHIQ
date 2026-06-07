@@ -1,7 +1,7 @@
 {
   "domain": "slac",
   "name": "三菱智能空调",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "config_flow": true,
   "documentation": "https://github.com/C3H3-AI/ha-MHIQ",
   "issue_tracker": "https://github.com/C3H3-AI/ha-MHIQ/issues",

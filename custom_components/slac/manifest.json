@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "config_flow": true,
   "documentation": "https://github.com/C3H3-AI/ha-MHIQ",
+  "issue_tracker": "https://github.com/C3H3-AI/ha-MHIQ/issues",
   "requirements": ["cryptography>=41.0.0"],
   "codeowners": ["@C3H3-AI"],
   "integration_type": "device",

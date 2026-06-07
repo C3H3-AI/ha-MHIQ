@@ -112,7 +112,7 @@ class SlacConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data["device_list"] = json.dumps(devices)
 
         _LOGGER.info("Creating entry with data keys: %s (weather=%s)", list(data.keys()), self._enable_weather)
-        return self.async_create_entry(title="三菱智能空调 (Mitsubishi Smart AC)", data=data)
+        return self.async_create_entry(title="三菱智能空调", data=data)
 
     async def async_step_location(self, user_input: dict | None = None) -> FlowResult:
         errors = {}
@@ -153,7 +153,7 @@ class SlacConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 data["device_list"] = json.dumps(devices)
 
             _LOGGER.info("Creating entry with data keys: %s", list(data.keys()))
-            return self.async_create_entry(title="三菱智能空调 (Mitsubishi Smart AC)", data=data)
+            return self.async_create_entry(title="三菱智能空调", data=data)
 
         return self.async_show_form(
             step_id="location",
@@ -259,6 +259,9 @@ class SlacOptionsFlow(config_entries.OptionsFlow):
                 data[CONF_IDENTITY_ID] = api.identity_id
                 data[CONF_REFRESH_TOKEN] = api.refresh_token
                 data[CONF_IOT_TOKEN] = api.iot_token
+                # 同步保存最新手机号和密码，避免下次重登时需重新输入
+                data[CONF_PHONE] = phone
+                data[CONF_PASSWORD] = password
                 self.hass.config_entries.async_update_entry(self.config_entry, data=data)
                 await self.hass.config_entries.async_reload(self.config_entry.entry_id)
                 return self.async_create_entry(title="", data={})
@@ -268,10 +271,12 @@ class SlacOptionsFlow(config_entries.OptionsFlow):
             except Exception as e:
                 _LOGGER.error("Re-login error: %s", e)
                 errors["base"] = "cannot_connect"
+        # 从已保存配置里读取手机号作为默认值，减少重复输入
+        saved_phone = self.config_entry.data.get(CONF_PHONE, "")
         return self.async_show_form(
             step_id="relogin",
             data_schema=vol.Schema({
-                vol.Required(CONF_PHONE): TextSelector(TextSelectorConfig(type="text")),
+                vol.Required(CONF_PHONE, default=saved_phone): TextSelector(TextSelectorConfig(type="text")),
                 vol.Required(CONF_PASSWORD): TextSelector(TextSelectorConfig(type="password")),
             }),
             errors=errors,

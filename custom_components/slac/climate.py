@@ -17,8 +17,18 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from . import SlacCoordinator
 from .const import (
     AC_MODE_HA_MAP,
+    AC_TO_FAN_MODE,
+    AC_TO_SWING_MODE,
+    AC_TO_PRESET_MODE,
     DOMAIN,
+    FAN_MODE_LIST,
+    FAN_MODE_TO_AC,
     HA_MODE_TO_AC,
+    HVAC_ACTION_MAP,
+    PRESET_MODE_LIST,
+    PRESET_MODE_MAP,
+    SWING_MODE_LIST,
+    SWING_MODE_TO_AC,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -36,7 +46,7 @@ async def async_setup_entry(
         iot_id = device.get("iotId", "")
         if iot_id:
             module_iot_id = iot_id
-        nick_name = device.get("nickName", "") or device.get("deviceName", "") or "SLAC 设备"
+        nick_name = device.get("nickName", "") or device.get("deviceName", "") or "三菱空调"
         internal_addr = device.get("internalAddress", -1)
         unit_key = f"Info{internal_addr}"
         key = f"{iot_id}_{unit_key}"
@@ -82,19 +92,11 @@ async def async_setup_entry(
         entity_registry.async_remove(entity_id)
 
 
-HVAC_ACTION_MAP = {
-    0: HVACAction.COOLING,
-    1: HVACAction.DRYING,
-    2: HVACAction.FAN,
-    3: HVACAction.HEATING,
-}
-
-
 def build_device_info(coordinator: SlacCoordinator, device: dict) -> dict:
     iot_id = device.get("iotId", "")
     internal_addr = device.get("internalAddress", -1)
-    nick_name = device.get("nickName", "") or device.get("deviceName", "") or "SLAC 设备"
-    is_floor = internal_addr >= 8
+    nick_name = device.get("nickName", "") or device.get("deviceName", "") or "三菱空调"
+    is_floor = internal_addr == 0
     info = {
         "identifiers": {(DOMAIN, f"{iot_id}_ac_{internal_addr}")},
         "via_device": (DOMAIN, iot_id),
@@ -125,6 +127,7 @@ class SlacClimate(CoordinatorEntity, ClimateEntity):
         self._unit_key = unit_key
         self._internal_addr = int(unit_key.replace("Info", ""))
         self._device = device
+        self._is_floor = self._internal_addr == 0
 
         self._attr_unique_id = f"slac_ac_{self._internal_addr}"
         self._attr_name = nick_name
@@ -132,15 +135,28 @@ class SlacClimate(CoordinatorEntity, ClimateEntity):
         self._attr_target_temperature_step = 0.5
         self._attr_min_temp = 16
         self._attr_max_temp = 30
-        self._attr_supported_features = (
-            ClimateEntityFeature.TURN_ON
-            | ClimateEntityFeature.TURN_OFF
-            | ClimateEntityFeature.TARGET_TEMPERATURE
-            | ClimateEntityFeature.FAN_MODE
-        )
-        self._attr_hvac_modes = [HVACMode.OFF, HVACMode.COOL, HVACMode.HEAT, HVACMode.DRY, HVACMode.FAN_ONLY, HVACMode.AUTO]
-        self._attr_fan_modes = ["auto", "low", "medium", "high"]
         self._attr_device_info = build_device_info(coordinator, device)
+
+        if self._is_floor:
+            self._attr_supported_features = (
+                ClimateEntityFeature.TURN_ON
+                | ClimateEntityFeature.TURN_OFF
+                | ClimateEntityFeature.TARGET_TEMPERATURE
+            )
+            self._attr_hvac_modes = [HVACMode.OFF, HVACMode.HEAT]
+        else:
+            self._attr_supported_features = (
+                ClimateEntityFeature.TURN_ON
+                | ClimateEntityFeature.TURN_OFF
+                | ClimateEntityFeature.TARGET_TEMPERATURE
+                | ClimateEntityFeature.FAN_MODE
+                | ClimateEntityFeature.SWING_MODE
+                | ClimateEntityFeature.PRESET_MODE
+            )
+            self._attr_hvac_modes = [HVACMode.OFF, HVACMode.COOL, HVACMode.HEAT, HVACMode.DRY, HVACMode.FAN_ONLY, HVACMode.AUTO]
+            self._attr_fan_modes = FAN_MODE_LIST
+            self._attr_swing_modes = SWING_MODE_LIST
+            self._attr_preset_modes = PRESET_MODE_LIST
 
     @property
     def _props(self) -> dict:
@@ -153,6 +169,8 @@ class SlacClimate(CoordinatorEntity, ClimateEntity):
         power = props.get("PowerSwitch", 0)
         if power != 1:
             return HVACMode.OFF
+        if self._is_floor:
+            return HVACMode.HEAT
         mode = props.get("WorkMode", 0)
         ha_mode = AC_MODE_HA_MAP.get(mode)
         if ha_mode:
@@ -165,8 +183,15 @@ class SlacClimate(CoordinatorEntity, ClimateEntity):
         power = props.get("PowerSwitch", 0)
         if power != 1:
             return HVACAction.OFF
+        if self._is_floor:
+            return HVACAction.HEATING
         mode = props.get("WorkMode", 0)
-        return HVAC_ACTION_MAP.get(mode, HVACAction.IDLE)
+        if mode == 0:
+            return HVACAction.IDLE
+        action = HVAC_ACTION_MAP.get(mode)
+        if action:
+            return HVACAction(action)
+        return HVACAction.IDLE
 
     @property
     def current_temperature(self) -> float | None:
@@ -186,21 +211,47 @@ class SlacClimate(CoordinatorEntity, ClimateEntity):
 
     @property
     def fan_mode(self) -> str | None:
+        if self._is_floor:
+            return None
         props = self._props
         wind = props.get("WindSpeed", 0)
-        if wind == 0:
-            return "auto"
-        if wind <= 2:
-            return "low"
-        if wind <= 4:
-            return "medium"
-        return "high"
+        return AC_TO_FAN_MODE.get(wind, "自动")
+
+    @property
+    def swing_mode(self) -> str | None:
+        if self._is_floor:
+            return None
+        props = self._props
+        horizontal = props.get("Horizontal", 0)
+        return AC_TO_SWING_MODE.get(horizontal, "auto")
+
+    @property
+    def preset_mode(self) -> str | None:
+        if self._is_floor:
+            return None
+        props = self._props
+        cd = props.get("CleaningDegerming", 0)
+        return AC_TO_PRESET_MODE.get(cd)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        props = self._props
+        return {
+            "fresh_air": props.get("FreshAir", 0),
+            "auxiliary_electricity": props.get("AuxiliaryElectricity", 0),
+            "water_pump": props.get("WaterPump", 0),
+            "controll_mode": props.get("ControllMode", 0),
+            "error_code": props.get("ErrorCode", 0),
+            "type_code": props.get("TypeCode", -1),
+        }
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         coordinator: SlacCoordinator = self.coordinator
         items = {"InternalAddress": self._internal_addr}
         if hvac_mode == HVACMode.OFF:
             items["PowerSwitch"] = 0
+        elif self._is_floor:
+            items["PowerSwitch"] = 1
         else:
             items["PowerSwitch"] = 1
             ac_mode = HA_MODE_TO_AC.get(str(hvac_mode))
@@ -229,8 +280,7 @@ class SlacClimate(CoordinatorEntity, ClimateEntity):
             _LOGGER.error("Failed to set temperature: %s", e)
 
     async def async_set_fan_mode(self, fan_mode: str) -> None:
-        wind_map = {"auto": 0, "low": 1, "medium": 3, "high": 5}
-        wind = wind_map.get(fan_mode, 0)
+        wind = FAN_MODE_TO_AC.get(fan_mode, 0)
         coordinator: SlacCoordinator = self.coordinator
         items = {"InternalAddress": self._internal_addr, "PowerSwitch": 1, "WindSpeed": wind}
         try:
@@ -239,8 +289,33 @@ class SlacClimate(CoordinatorEntity, ClimateEntity):
         except Exception as e:
             _LOGGER.error("Failed to set fan mode: %s", e)
 
+    async def async_set_swing_mode(self, swing_mode: str) -> None:
+        horizontal = SWING_MODE_TO_AC.get(swing_mode, 0)
+        coordinator: SlacCoordinator = self.coordinator
+        items = {"InternalAddress": self._internal_addr, "PowerSwitch": 1, "Horizontal": horizontal}
+        try:
+            await coordinator.api.async_set_properties(self._iot_id, items)
+            await coordinator.async_request_refresh()
+        except Exception as e:
+            _LOGGER.error("Failed to set swing mode: %s", e)
+
+    async def async_set_preset_mode(self, preset_mode: str) -> None:
+        cd_value = PRESET_MODE_MAP.get(preset_mode)
+        if cd_value is None:
+            return
+        coordinator: SlacCoordinator = self.coordinator
+        items = {"InternalAddress": self._internal_addr, "CleaningDegerming": cd_value}
+        try:
+            await coordinator.api.async_set_properties(self._iot_id, items)
+            await coordinator.async_request_refresh()
+        except Exception as e:
+            _LOGGER.error("Failed to set preset mode: %s", e)
+
     async def async_turn_on(self) -> None:
-        await self.async_set_hvac_mode(HVACMode.COOL)
+        if self._is_floor:
+            await self.async_set_hvac_mode(HVACMode.HEAT)
+        else:
+            await self.async_set_hvac_mode(HVACMode.COOL)
 
     async def async_turn_off(self) -> None:
         await self.async_set_hvac_mode(HVACMode.OFF)

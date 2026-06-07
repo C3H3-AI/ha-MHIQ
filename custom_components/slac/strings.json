@@ -111,6 +111,25 @@
       },
       "wind": {
         "name": "Wind"
+      },
+      "error_code": {
+        "name": "Error code"
+      }
+    },
+    "switch": {
+      "fresh_air": {
+        "name": "Fresh air"
+      },
+      "auxiliary_electricity": {
+        "name": "Auxiliary heat"
+      }
+    },
+    "binary_sensor": {
+      "module_online": {
+        "name": "WiFi module"
+      },
+      "sub_online": {
+        "name": "Online"
       }
     }
   }

@@ -34,7 +34,7 @@ API_CUSTOM_DEVICE_LIST = "/devDevice/getDeviceList"
 
 REQUEST_TIMEOUT = 30
 MAX_RETRIES = 3
-TOKEN_EXPIRE_THRESHOLD = 300
+TOKEN_EXPIRE_THRESHOLD = 6 * 3600  # 6小时主动刷新，由 const.py 统一管理
 
 
 class SlacAuthError(Exception):
@@ -170,6 +170,7 @@ class SlacApi:
         self._on_token_refresh = on_token_refresh
         self._phone: str = ""
         self._password: str = ""
+        self._refresh_lock = asyncio.Lock()
 
     async def _iot_request(self, path: str, body: str, retry: int = 0) -> dict:
         url = f"{IOT_API_HOST}{path}"
@@ -295,6 +296,7 @@ class SlacApi:
                 await self._on_token_refresh({
                     "identity_id": self._identity_id,
                     "refresh_token": self._refresh_token,
+                    "iot_token": self._iot_token,
                 })
         return result
 
@@ -302,39 +304,46 @@ class SlacApi:
         if not self._refresh_token:
             _LOGGER.error("No refresh token available")
             return False
-        try:
-            body = make_iot_request_body(
-                api_ver="1.0.4",
-                params={
-                    "request": {
-                        "authCode": self._refresh_token,
-                        "accountType": "OA_SESSION",
-                        "appKey": APP_KEY,
-                    }
-                },
-            )
-            result = await self._iot_request(API_CREATE_SESSION, body)
-            if isinstance(result, dict):
-                new_iot = result.get("iotToken")
-                new_refresh = result.get("refreshToken")
-                new_identity = result.get("identityId")
-                if new_iot:
-                    self._iot_token = new_iot
-                    self._iot_token_expire = int(time.time()) + result.get("iotTokenExpire", 72000)
-                if new_refresh:
-                    self._refresh_token = new_refresh
-                if new_identity:
-                    self._identity_id = new_identity
-                if self._on_token_refresh:
-                    await self._on_token_refresh({
-                        "identity_id": self._identity_id,
-                        "refresh_token": self._refresh_token,
-                    })
-                return bool(self._iot_token)
-            return False
-        except Exception as e:
-            _LOGGER.error("Token refresh failed: %s", e)
-            return False
+        async with self._refresh_lock:
+            # 二次检查：可能其他协程已经刷新完毕
+            if self._iot_token and not self.is_token_expiring():
+                _LOGGER.debug("Token already refreshed by another task, skipping")
+                return True
+            try:
+                body = make_iot_request_body(
+                    api_ver="1.0.4",
+                    params={
+                        "request": {
+                            "authCode": self._refresh_token,
+                            "accountType": "OA_SESSION",
+                            "appKey": APP_KEY,
+                        }
+                    },
+                )
+                result = await self._iot_request(API_CREATE_SESSION, body)
+                if isinstance(result, dict):
+                    new_iot = result.get("iotToken")
+                    new_refresh = result.get("refreshToken")
+                    new_identity = result.get("identityId")
+                    if new_iot:
+                        self._iot_token = new_iot
+                        self._iot_token_expire = int(time.time()) + result.get("iotTokenExpire", 72000)
+                    if new_refresh:
+                        self._refresh_token = new_refresh
+                    if new_identity:
+                        self._identity_id = new_identity
+                    if self._on_token_refresh:
+                        await self._on_token_refresh({
+                            "identity_id": self._identity_id,
+                            "refresh_token": self._refresh_token,
+                            "iot_token": self._iot_token,
+                        })
+                    return bool(self._iot_token)
+                return False
+            except Exception as e:
+                _LOGGER.error("Token refresh failed: %s", e)
+                self.invalidate_iot_token()
+                return False
 
     async def async_get_device_list(self) -> list:
         body = make_iot_request_body(
@@ -366,6 +375,10 @@ class SlacApi:
         )
         try:
             result = await self._iot_request(API_GET_PROPERTIES, body)
+        except SlacApiError as e:
+            _LOGGER.warning("IoT API auth error, invaliding token: %s", e)
+            self.invalidate_iot_token()
+            return {}
         except Exception as e:
             _LOGGER.warning("Failed to fetch properties: %s", e)
             return {}
@@ -428,6 +441,11 @@ class SlacApi:
     def set_iot_token(self, iot_token: str, expires_in: int = 72000):
         self._iot_token = iot_token
         self._iot_token_expire = int(time.time()) + expires_in
+
+    def invalidate_iot_token(self):
+        """清空 IoT token，强制下一轮走刷新或重新登录"""
+        self._iot_token = ""
+        self._iot_token_expire = 0
 
     @property
     def identity_id(self) -> str:

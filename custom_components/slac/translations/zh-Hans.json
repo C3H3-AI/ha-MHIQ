@@ -111,6 +111,25 @@
       },
       "wind": {
         "name": "风力"
+      },
+      "error_code": {
+        "name": "故障码"
+      }
+    },
+    "switch": {
+      "fresh_air": {
+        "name": "新风"
+      },
+      "auxiliary_electricity": {
+        "name": "辅电"
+      }
+    },
+    "binary_sensor": {
+      "module_online": {
+        "name": "WiFi模块在线"
+      },
+      "sub_online": {
+        "name": "在线状态"
       }
     }
   }

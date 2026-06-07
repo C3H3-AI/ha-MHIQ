@@ -27,9 +27,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def _get_platforms(entry: ConfigEntry) -> list[Platform]:
-    platforms = [Platform.CLIMATE]
-    if entry.data.get(CONF_ENABLE_WEATHER, True):
-        platforms.append(Platform.SENSOR)
+    platforms = [Platform.CLIMATE, Platform.SENSOR, Platform.SWITCH, Platform.BINARY_SENSOR]
     return platforms
 
 
@@ -40,6 +38,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         data = dict(entry.data)
         data[CONF_IDENTITY_ID] = tokens.get("identity_id", data.get(CONF_IDENTITY_ID, ""))
         data[CONF_REFRESH_TOKEN] = tokens.get("refresh_token", data.get(CONF_REFRESH_TOKEN, ""))
+        iot_token = tokens.get("iot_token")
+        if iot_token:
+            data[CONF_IOT_TOKEN] = iot_token
         hass.config_entries.async_update_entry(entry, data=data)
         _LOGGER.info("Persisted refreshed tokens to config entry")
 
@@ -54,13 +55,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         api.set_login_credentials(phone, password)
     stored_iot = entry.data.get(CONF_IOT_TOKEN, "")
     if stored_iot:
-        api.set_iot_token(stored_iot)
-        _LOGGER.info("Using stored IoT token")
+        # expires_in=0 标记为"不确定签发时间"，让 is_token_expiring() 兜底触发刷新
+        api.set_iot_token(stored_iot, expires_in=0)
+        _LOGGER.info("Restored IoT token, starting immediate background refresh...")
+        async def _do_initial_refresh():
+            try:
+                success = await api.async_refresh_iot_token()
+                if success:
+                    _LOGGER.info("Initial token refresh succeeded, new expiry in ~20h")
+                else:
+                    _LOGGER.warning("Initial token refresh returned False, will retry via coordinator")
+            except Exception as e:
+                _LOGGER.warning("Initial token refresh failed: %s", e)
+        hass.async_create_background_task(_do_initial_refresh(), "slac_initial_token_refresh")
     elif refresh_token:
-        try:
-            await api.async_refresh_iot_token()
-        except Exception as e:
-            _LOGGER.warning("Initial token refresh failed: %s", e)
+        async def _do_refresh_only():
+            try:
+                await api.async_refresh_iot_token()
+                _LOGGER.info("Initial token refresh from refresh_token succeeded")
+            except Exception as e:
+                _LOGGER.warning("Initial token refresh failed: %s", e)
+        hass.async_create_background_task(_do_refresh_only(), "slac_initial_token_refresh")
 
     devices = []
     device_list_str = entry.data.get("device_list", "")
@@ -92,11 +107,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     api.sub_locality = sub_locality
 
     coordinator = SlacCoordinator(hass, api, entry, devices)
-    try:
-        await coordinator.async_config_entry_first_refresh()
-    except Exception as e:
-        _LOGGER.warning("First refresh failed (token may be expired): %s", e)
-        coordinator.last_update_success = False
+
+    # 不阻塞 HA 启动，后台执行首次数据刷新
+    async def _first_refresh_wrapper():
+        try:
+            await coordinator.async_config_entry_first_refresh()
+            _LOGGER.info("First coordinator refresh completed")
+        except Exception as e:
+            _LOGGER.warning("First coordinator refresh failed: %s", e)
+            coordinator.last_update_success = False
+
+    hass.async_create_background_task(_first_refresh_wrapper(), "slac_first_refresh")
 
     hass.data[DOMAIN][entry.entry_id] = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, _get_platforms(entry))

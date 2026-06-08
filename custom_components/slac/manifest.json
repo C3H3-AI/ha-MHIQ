@@ -6,6 +6,7 @@
   "documentation": "https://github.com/C3H3-AI/ha-MHIQ",
   "issue_tracker": "https://github.com/C3H3-AI/ha-MHIQ/issues",
   "requirements": ["cryptography>=41.0.0"],
+  "authors": ["@C3H3-AI"],
   "codeowners": ["@C3H3-AI"],
   "integration_type": "device",
   "iot_class": "cloud_polling"

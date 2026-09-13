@@ -5,9 +5,14 @@
   "config_flow": true,
   "documentation": "https://github.com/C3H3-AI/ha-MHIQ",
   "issue_tracker": "https://github.com/C3H3-AI/ha-MHIQ/issues",
+  "dependencies": [],
   "requirements": [],
-  "authors": ["@C3H3-AI"],
-  "codeowners": ["@C3H3-AI"],
+  "authors": [
+    "@C3H3-AI"
+  ],
+  "codeowners": [
+    "@C3H3-AI"
+  ],
   "integration_type": "device",
   "iot_class": "cloud_polling"
 }

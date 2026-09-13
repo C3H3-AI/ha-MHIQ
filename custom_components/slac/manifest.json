@@ -1,18 +1,15 @@
 {
   "domain": "slac",
   "name": "三菱智能空调",
-  "version": "1.2.3",
-  "config_flow": true,
-  "documentation": "https://github.com/C3H3-AI/ha-MHIQ",
-  "issue_tracker": "https://github.com/C3H3-AI/ha-MHIQ/issues",
-  "dependencies": [],
-  "requirements": [],
-  "authors": [
-    "@C3H3-AI"
-  ],
   "codeowners": [
     "@C3H3-AI"
   ],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/C3H3-AI/ha-MHIQ",
   "integration_type": "device",
-  "iot_class": "cloud_polling"
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/C3H3-AI/ha-MHIQ/issues",
+  "requirements": [],
+  "version": "1.2.3"
 }

@@ -11,5 +11,5 @@
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/C3H3-AI/ha-MHIQ/issues",
   "requirements": [],
-  "version": "1.2.3"
+  "version": "1.2.4"
 }

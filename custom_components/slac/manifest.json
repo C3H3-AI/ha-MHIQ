@@ -11,6 +11,5 @@
   "integration_type": "device",
   "iot_class": "cloud_push",
   "issue_tracker": "https://github.com/C3H3-AI/ha-MHIQ/issues",
-  "requirements": ["paho-mqtt>=1.6.1"],
-  "authors": ["@C3H3-AI"]
+  "requirements": ["paho-mqtt>=1.6.1"]
 }

@@ -10,6 +10,7 @@ CONF_PROVINCE = "province"
 CONF_CITY = "city"
 CONF_SUB_LOCALITY = "sub_locality"
 CONF_ENABLE_WEATHER = "enable_weather"
+CONF_ENABLE_PUSH = "enable_push"
 
 DEVICE_TYPE_AC = 0
 
@@ -71,7 +72,14 @@ HVAC_ACTION_MAP = {
     4: "drying",
 }
 
+# 轮询间隔（秒）：
+# - 长连接推送绑定成功后降频至此值，仅作兜底（天气/场景/设备列表刷新）
+# - 推送不可用时回落到快速轮询，保证状态仍能更新
 COORDINATOR_UPDATE_INTERVAL = 10
+COORDINATOR_PUSH_FALLBACK_INTERVAL = 60
+
+# 长连接推送重试间隔（秒）：推送启动失败后按此间隔在轮询中重试
+PUSH_RETRY_INTERVAL = 300
 
 # Token 刷新策略：token 有效期20h（服务器返回 iotTokenExpire=72000s），
 # 当剩余时间 < 1h 时触发刷新，确保永不过期且预留充足重试时间

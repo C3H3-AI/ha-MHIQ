@@ -31,6 +31,10 @@ API_GET_PROPERTIES = "/thing/properties/get"
 API_SET_PROPERTIES = "/thing/properties/set"
 API_GET_PRODUCT_INFO = "/thing/productInfo/getByAppKey"
 API_CUSTOM_DEVICE_LIST = "/devDevice/getDeviceList"
+API_AEP_AUTH = "/app/aepauth/handle"
+API_GET_SCENES = "/scene/list/get"
+API_FIRE_SCENE = "/scene/fire"
+API_GET_TIMING_SCENES = "/scene/timing/list/get"
 REQUEST_TIMEOUT = 30
 MAX_RETRIES = 3
 TOKEN_EXPIRE_THRESHOLD = 1 * 3600  # 提前1小时刷新，与 const.py 一致
@@ -417,6 +421,124 @@ class SlacApi:
         if resp and "data" in resp:
             return resp
         return None
+
+    async def async_aepauth(self) -> dict:
+        """换取长连接 MQTT 三元组（productKey/deviceName/deviceSecret）
+
+        来源：APP 的 MobileAuthHttpRequest → /app/aepauth/handle。
+        外层 x-ca-key 固定用 APP_KEY（与通用 IoT 请求一致）；
+        内层 authInfo.sign = HmacSHA1(APP_SECRET, appKey+clientId+deviceSn+timestamp) 小写 hex，
+        appKey 用 x-ca 同一个 APP_KEY（实测通过）。
+        deviceSn/clientId 每次会话随机生成，无需持久化。
+        """
+        device_sn = uuid.uuid4().hex
+        client_id = uuid.uuid4().hex[:8]
+        timestamp = str(int(time.time() * 1000))
+        to_sign = (
+            "appKey" + APP_KEY
+            + "clientId" + client_id
+            + "deviceSn" + device_sn
+            + "timestamp" + timestamp
+        )
+        sign = hmac.new(APP_SECRET.encode("utf-8"), to_sign.encode("utf-8"), hashlib.sha1).hexdigest()
+        body = json.dumps({
+            "id": str(uuid.uuid4()),
+            "version": "1.0",
+            "request": {"apiVer": "1.0.0"},
+            "params": {"authInfo": {
+                "timestamp": timestamp,
+                "clientId": client_id,
+                "deviceSn": device_sn,
+                "sign": sign,
+            }},
+        }, ensure_ascii=False, separators=(",", ":"))
+        for attempt in range(MAX_RETRIES + 1):
+            try:
+                headers = compute_iot_headers(API_AEP_AUTH, body)
+                async with self._session.post(
+                    f"{IOT_API_HOST}{API_AEP_AUTH}", headers=headers, data=body,
+                    timeout=aiohttp.ClientTimeout(total=REQUEST_TIMEOUT),
+                ) as resp:
+                    text = await resp.text()
+                    if resp.status != 200:
+                        raise SlacApiError(f"aepauth error {resp.status}: {text[:300]}")
+                    data = json.loads(text)
+                    if data.get("code") != 200:
+                        raise SlacApiError(f"aepauth failed: {data.get('message')} (code={data.get('code')})")
+                    return data.get("data", {})
+            except (aiohttp.ClientError, asyncio.TimeoutError, json.JSONDecodeError) as e:
+                if attempt < MAX_RETRIES:
+                    _LOGGER.warning("aepauth retry %d/%d: %s", attempt + 1, MAX_RETRIES, e)
+                    await asyncio.sleep(2 ** attempt)
+                else:
+                    raise SlacApiError(f"aepauth request failed: {e}") from e
+
+    async def async_get_scenes(self) -> list:
+        """获取云端场景列表（App /scene/list/get，apiVer 1.0.5，分页 50）"""
+        scenes: list = []
+        page_no = 1
+        while page_no <= 10:  # 上限保护
+            body = make_iot_request_body(
+                api_ver="1.0.5",
+                params={"group": "1", "pageNo": page_no, "pageSize": 50},
+                iot_token=self._iot_token,
+            )
+            data = await self._iot_request(API_GET_SCENES, body)
+            if not isinstance(data, dict):
+                break
+            batch = data.get("scenes") or []
+            scenes.extend(batch)
+            if not batch or len(scenes) >= int(data.get("total") or 0):
+                break
+            page_no += 1
+        return scenes
+
+    async def async_fire_scene(self, scene_id: str) -> dict:
+        """手动执行（触发）一个场景"""
+        body = make_iot_request_body(
+            api_ver="1.0.2",
+            params={"sceneId": scene_id},
+            iot_token=self._iot_token,
+        )
+        return await self._iot_request(API_FIRE_SCENE, body)
+
+    async def async_get_timing_scenes(self, iot_id: str) -> list:
+        """获取定时场景列表（需 iotId）"""
+        body = make_iot_request_body(
+            api_ver="1.0.2",
+            params={"iotId": iot_id, "pageNo": 1, "pageSize": 50},
+            iot_token=self._iot_token,
+        )
+        data = await self._iot_request(API_GET_TIMING_SCENES, body)
+        if isinstance(data, dict):
+            return data.get("scenes") or []
+        return []
+
+    async def async_get_notice_config(self) -> dict:
+        """获取通知开关配置（异常提醒/到家/离家）"""
+        result = await self._custom_request(
+            "/devUserConfig/detail", {"userId": self._identity_id})
+        if isinstance(result, dict) and result.get("success"):
+            return result.get("data") or {}
+        return {}
+
+    async def async_set_notice_config(self, notice_type: str, enabled: bool) -> bool:
+        """设置通知开关
+
+        notice_type: exceptionNotice / beHomeNotice / leaveHomeNotice
+        """
+        suffix = "on" if enabled else "off"
+        result = await self._custom_request(
+            f"/devUserConfig/{notice_type}/{suffix}", {"userId": self._identity_id})
+        return bool(isinstance(result, dict) and result.get("success"))
+
+    async def async_get_speaker_code(self) -> str:
+        """获取华为音箱配对码（oauth/vcode）"""
+        result = await self._custom_request(
+            "/oauth/vcode", {"identityId": self._identity_id})
+        if isinstance(result, dict) and result.get("success"):
+            return str((result.get("data") or {}).get("vcode", ""))
+        return ""
 
     def set_credentials(self, identity_id: str, refresh_token: str):
         self._identity_id = identity_id

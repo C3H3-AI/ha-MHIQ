@@ -1,0 +1,18 @@
+fire_scene:
+  fields:
+    scene_id:
+      required: true
+      example: "0d7a9f8e1234567890abcdef12345678"
+      selector:
+        text:
+    entry_id:
+      required: false
+      selector:
+        text:
+
+get_speaker_code:
+  fields:
+    entry_id:
+      required: false
+      selector:
+        text:

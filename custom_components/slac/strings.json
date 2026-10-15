@@ -23,7 +23,8 @@
         "data": {
           "phone": "Phone number",
           "password": "Password",
-          "enable_weather": "Enable weather service"
+          "enable_weather": "Enable weather service",
+          "enable_push": "Enable realtime push (long connection, reduces polling)"
         }
       },
       "location": {
@@ -76,11 +77,44 @@
         "data": {
           "enable_weather": "Enable weather service"
         }
+      },
+      "push_toggle": {
+        "title": "Toggle realtime push",
+        "description": "Enable or disable the MQTT long connection push (current: {current})",
+        "data": {
+          "enable_push": "Enable realtime push"
+        }
       }
     },
     "error": {
       "login_failed": "Login failed, please check your phone number and password",
       "cannot_connect": "Cannot connect to server"
+    }
+  },
+  "services": {
+    "fire_scene": {
+      "name": "Fire scene",
+      "description": "Trigger a cloud scene by scene id",
+      "fields": {
+        "scene_id": {
+          "name": "Scene ID",
+          "description": "The scene id to trigger"
+        },
+        "entry_id": {
+          "name": "Config entry id",
+          "description": "Optional config entry id when multiple accounts are configured"
+        }
+      }
+    },
+    "get_speaker_code": {
+      "name": "Get speaker pairing code",
+      "description": "Get the Huawei speaker pairing code (vcode) for the account",
+      "fields": {
+        "entry_id": {
+          "name": "Config entry id",
+          "description": "Optional config entry id when multiple accounts are configured"
+        }
+      }
     }
   },
   "entity": {

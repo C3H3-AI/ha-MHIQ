@@ -23,6 +23,25 @@ SWITCH_TYPES = {
     },
 }
 
+# 账户级通知开关（/devUserConfig/{type}/on|off，App NotifactionSettingActivity）
+NOTICE_SWITCHES = {
+    "notice_exception": {
+        "notice_key": "exceptionNotice",
+        "label": "故障异常提醒",
+        "icon": "mdi:alert-circle",
+    },
+    "notice_be_home": {
+        "notice_key": "beHomeNotice",
+        "label": "到家提醒",
+        "icon": "mdi:home-alert",
+    },
+    "notice_leave_home": {
+        "notice_key": "leaveHomeNotice",
+        "label": "离家提醒",
+        "icon": "mdi:home-export-outline",
+    },
+}
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -43,6 +62,12 @@ async def async_setup_entry(
         nick = device.get("nickName", "") or device.get("deviceName", "") or f"设备{internal_addr}"
         for switch_type, config in SWITCH_TYPES.items():
             entities.append(SlacToggleSwitch(coordinator, iot_id, internal_addr, unit_key, nick, switch_type, config))
+
+    # 账户级通知开关（挂到首个模块设备）
+    if coordinator.devices:
+        first_iot_id = coordinator.devices[0].get("iotId", "")
+        for switch_type, config in NOTICE_SWITCHES.items():
+            entities.append(SlacNoticeSwitch(coordinator, first_iot_id, switch_type, config))
 
     _LOGGER.info("SLAC switch creating %d entities", len(entities))
     if entities:
@@ -116,3 +141,55 @@ class SlacToggleSwitch(CoordinatorEntity, SwitchEntity):
             await coordinator.async_request_refresh()
         except Exception as e:
             _LOGGER.error("Failed to turn off %s: %s", self._switch_type, e)
+
+
+class SlacNoticeSwitch(CoordinatorEntity, SwitchEntity):
+    """账户级通知开关（状态来自 /devUserConfig/detail，写走 /devUserConfig/{type}/on|off）"""
+
+    _attr_has_entity_name = False
+
+    def __init__(
+        self,
+        coordinator: SlacCoordinator,
+        iot_id: str,
+        switch_type: str,
+        config: dict,
+    ) -> None:
+        super().__init__(coordinator)
+        self._iot_id = iot_id
+        self._switch_type = switch_type
+        self._notice_key = config["notice_key"]
+        self._local_state: bool | None = None
+
+        self._attr_unique_id = f"slac_{switch_type}"
+        self._attr_name = config["label"]
+        self._attr_icon = config["icon"]
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, iot_id)},
+        }
+
+    @property
+    def is_on(self) -> bool | None:
+        cfg = self.coordinator.notice_config or {}
+        if self._notice_key in cfg:
+            return bool(cfg[self._notice_key])
+        return self._local_state
+
+    async def _async_set(self, enabled: bool) -> None:
+        try:
+            ok = await self.coordinator.api.async_set_notice_config(self._notice_key, enabled)
+            if ok:
+                self._local_state = enabled
+                # 通知配置刷新限流 30 分钟，强制立即刷新
+                self.coordinator._last_extras_refresh = 0.0
+                await self.coordinator.async_request_refresh()
+            else:
+                _LOGGER.error("设置通知开关 %s=%s 服务端返回失败", self._notice_key, enabled)
+        except Exception as e:
+            _LOGGER.error("设置通知开关 %s 失败: %s", self._notice_key, e)
+
+    async def async_turn_on(self, **kwargs) -> None:
+        await self._async_set(True)
+
+    async def async_turn_off(self, **kwargs) -> None:
+        await self._async_set(False)

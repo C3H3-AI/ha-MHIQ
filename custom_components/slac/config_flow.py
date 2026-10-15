@@ -10,6 +10,7 @@ from homeassistant.helpers.selector import TextSelector, TextSelectorConfig
 from .api import SlacApi, SlacAuthError
 from .const import (
     CONF_CITY,
+    CONF_ENABLE_PUSH,
     CONF_ENABLE_WEATHER,
     CONF_IDENTITY_ID,
     CONF_IOT_TOKEN,
@@ -34,6 +35,7 @@ class SlacConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._iot_token: str = ""
         self._phone: str = ""
         self._password: str = ""
+        self._enable_push: bool = True
 
     @staticmethod
     def async_get_options_flow(config_entry):
@@ -65,6 +67,7 @@ class SlacConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self._phone = user_input[CONF_PHONE]
                 self._password = user_input[CONF_PASSWORD]
                 self._enable_weather = user_input.get(CONF_ENABLE_WEATHER, True)
+                self._enable_push = user_input.get(CONF_ENABLE_PUSH, True)
                 await self.async_set_unique_id(self._identity_id)
                 self._abort_if_unique_id_configured()
                 return await self._finalize()
@@ -74,6 +77,7 @@ class SlacConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required(CONF_PHONE): TextSelector(TextSelectorConfig(type="text")),
                 vol.Required(CONF_PASSWORD): TextSelector(TextSelectorConfig(type="password")),
                 vol.Optional(CONF_ENABLE_WEATHER, default=True): bool,
+                vol.Optional(CONF_ENABLE_PUSH, default=True): bool,
             }),
             errors=errors,
             description_placeholders={"name": PLATFORM_NAME},
@@ -89,6 +93,7 @@ class SlacConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             CONF_IDENTITY_ID: self._identity_id,
             CONF_REFRESH_TOKEN: self._refresh_token,
             CONF_ENABLE_WEATHER: self._enable_weather,
+            CONF_ENABLE_PUSH: self._enable_push,
             CONF_PROVINCE: "",
             CONF_CITY: "",
             CONF_SUB_LOCALITY: "",
@@ -116,6 +121,7 @@ class SlacConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 CONF_IDENTITY_ID: self._identity_id,
                 CONF_REFRESH_TOKEN: self._refresh_token,
                 CONF_ENABLE_WEATHER: self._enable_weather,
+                CONF_ENABLE_PUSH: self._enable_push,
                 CONF_PROVINCE: province,
                 CONF_CITY: city,
                 CONF_SUB_LOCALITY: sub_locality,
@@ -151,19 +157,41 @@ class SlacOptionsFlow(config_entries.OptionsFlow):
                 return await self.async_step_relogin()
             if action == "weather_toggle":
                 return await self.async_step_weather_toggle()
+            if action == "push_toggle":
+                return await self.async_step_push_toggle()
             return await self.async_step_location(None)
 
         current_weather = self.config_entry.data.get(CONF_ENABLE_WEATHER, True)
         weather_status = "已开启" if current_weather else "已关闭"
+        current_push = self.config_entry.data.get(CONF_ENABLE_PUSH, True)
+        push_status = "已开启" if current_push else "已关闭"
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema({
                 vol.Required("action", default="location"): vol.In({
                     "location": "设置天气地区",
                     "weather_toggle": f"天气服务（当前{weather_status}）",
+                    "push_toggle": f"实时推送（当前{push_status}）",
                     "relogin": "重新登录（手机+密码）",
                 }),
             }),
+        )
+
+    async def async_step_push_toggle(self, user_input: dict | None = None) -> FlowResult:
+        if user_input is not None:
+            data = dict(self.config_entry.data)
+            data[CONF_ENABLE_PUSH] = user_input[CONF_ENABLE_PUSH]
+            self.hass.config_entries.async_update_entry(self.config_entry, data=data)
+            await self.hass.config_entries.async_reload(self.config_entry.entry_id)
+            return self.async_create_entry(title="", data={})
+
+        current = self.config_entry.data.get(CONF_ENABLE_PUSH, True)
+        return self.async_show_form(
+            step_id="push_toggle",
+            data_schema=vol.Schema({
+                vol.Required(CONF_ENABLE_PUSH, default=current): bool,
+            }),
+            description_placeholders={"current": "开启" if current else "关闭"},
         )
 
     async def async_step_weather_toggle(self, user_input: dict | None = None) -> FlowResult:

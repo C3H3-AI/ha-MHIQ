@@ -6,13 +6,14 @@ from datetime import timedelta
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.helpers import aiohttp_client
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import SlacApi
 from .const import (
     CONF_CITY,
+    CONF_ENABLE_PUSH,
     CONF_ENABLE_WEATHER,
     CONF_IDENTITY_ID,
     CONF_IOT_TOKEN,
@@ -21,15 +22,23 @@ from .const import (
     CONF_PROVINCE,
     CONF_REFRESH_TOKEN,
     CONF_SUB_LOCALITY,
+    COORDINATOR_PUSH_FALLBACK_INTERVAL,
     COORDINATOR_UPDATE_INTERVAL,
     DOMAIN,
+    PUSH_RETRY_INTERVAL,
 )
+from .mqtt_push import SlacPushClient
 
 _LOGGER = logging.getLogger(__name__)
 
+# 场景/通知配置等低频数据的刷新间隔（秒）
+EXTRAS_REFRESH_INTERVAL = 1800
+
+SERVICES_REGISTERED = False
+
 
 def _get_platforms(entry: ConfigEntry) -> list[Platform]:
-    platforms = [Platform.CLIMATE, Platform.SENSOR, Platform.SWITCH, Platform.BINARY_SENSOR]
+    platforms = [Platform.CLIMATE, Platform.SENSOR, Platform.SWITCH, Platform.BINARY_SENSOR, Platform.BUTTON]
     return platforms
 
 
@@ -114,16 +123,61 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     hass.async_create_background_task(_first_refresh_wrapper(), "slac_first_refresh")
 
+    # 启动长连接推送（后台任务，失败不阻塞配置项加载）
+    enable_push = entry.data.get(CONF_ENABLE_PUSH, True)
+    if enable_push:
+        hass.async_create_background_task(
+            coordinator.async_setup_push(), "slac_push_setup")
+
     hass.data[DOMAIN][entry.entry_id] = coordinator
+    _async_register_services(hass)
     await hass.config_entries.async_forward_entry_setups(entry, _get_platforms(entry))
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    coordinator: SlacCoordinator | None = hass.data[DOMAIN].get(entry.entry_id)
     unload_ok = await hass.config_entries.async_unload_platforms(entry, _get_platforms(entry))
     if unload_ok:
+        if coordinator is not None:
+            # stop() 内含 paho 网络收尾与 sleep，放线程池避免阻塞事件循环
+            await hass.async_add_executor_job(coordinator.async_stop_push)
         hass.data[DOMAIN].pop(entry.entry_id, None)
     return unload_ok
+
+
+def _async_register_services(hass: HomeAssistant) -> None:
+    """注册集成级服务（全局一次）"""
+    global SERVICES_REGISTERED
+    if SERVICES_REGISTERED:
+        return
+    SERVICES_REGISTERED = True
+
+    async def _handle_fire_scene(call: ServiceCall) -> dict:
+        entry_id = call.data.get("entry_id") or next(iter(hass.data.get(DOMAIN, {})), None)
+        coordinator = hass.data.get(DOMAIN, {}).get(entry_id)
+        if coordinator is None:
+            raise ValueError("未找到 SLAC 配置项")
+        scene_id = call.data["scene_id"]
+        result = await coordinator.api.async_fire_scene(scene_id)
+        await coordinator.async_request_refresh()
+        return {"result": result}
+
+    hass.services.async_register(
+        DOMAIN, "fire_scene", _handle_fire_scene,
+        schema=None, supports_response=SupportsResponse.OPTIONAL)
+
+    async def _handle_get_speaker_code(call: ServiceCall) -> dict:
+        entry_id = call.data.get("entry_id") or next(iter(hass.data.get(DOMAIN, {})), None)
+        coordinator = hass.data.get(DOMAIN, {}).get(entry_id)
+        if coordinator is None:
+            raise ValueError("未找到 SLAC 配置项")
+        code = await coordinator.api.async_get_speaker_code()
+        return {"vcode": code}
+
+    hass.services.async_register(
+        DOMAIN, "get_speaker_code", _handle_get_speaker_code,
+        schema=None, supports_response=SupportsResponse.OPTIONAL)
 
 
 class SlacCoordinator(DataUpdateCoordinator):
@@ -139,9 +193,133 @@ class SlacCoordinator(DataUpdateCoordinator):
         self.devices: list[dict] = devices or []
         self.device_properties: dict[str, dict] = {}
         self.device_detail: dict = {}
+        # 长连接推送
+        self.push_client: SlacPushClient | None = None
+        self.push_enabled = entry.data.get(CONF_ENABLE_PUSH, True)
+        self.push_bound = False
+        self._push_setup_done = False
+        self._push_starting = False
+        self._last_push_retry = 0.0
+        # 低频扩展数据（场景/定时/通知配置）
+        self.scenes: list[dict] = []
+        self.timing_scenes: list[dict] = []
+        self.notice_config: dict = {}
+        self._last_extras_refresh = 0.0
+
+    # ---------------- 长连接推送 ----------------
+
+    async def async_setup_push(self) -> None:
+        """启动长连接推送；失败则保持轮询并在后续轮询中按间隔重试"""
+        if not self.push_enabled or self._push_setup_done or self._push_starting:
+            return
+        self._push_starting = True
+        try:
+            await self._async_setup_push_inner()
+        finally:
+            self._push_starting = False
+
+    async def _async_setup_push_inner(self) -> None:
+        if not self.api.iot_token:
+            try:
+                await self.api.async_refresh_iot_token()
+            except Exception as e:  # noqa: BLE001
+                _LOGGER.debug("推送启动前刷新 token 失败: %s", e)
+        if not self.api.iot_token:
+            _LOGGER.warning("无可用 iotToken，跳过长连接推送启动")
+            return
+
+        try:
+            aepauth = await self.api.async_aepauth()
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.warning("aepauth 获取 MQTT 三元组失败（将保持轮询）: %s", e)
+            self._last_push_retry = time.monotonic()
+            return
+
+        client = SlacPushClient(
+            get_iot_token=lambda: self.api.iot_token,
+            on_properties_pushed=self._handle_properties_push,
+            on_bound=self._handle_push_bound,
+        )
+        self.push_client = client
+        try:
+            bound = await client.async_start(self.hass.loop, aepauth)
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.warning("长连接推送启动失败（将保持轮询）: %s", e)
+            self._last_push_retry = time.monotonic()
+            return
+        self._push_setup_done = True
+        self.push_bound = bool(bound)
+        self._apply_push_interval()
+
+    def _handle_push_bound(self, bound: bool) -> None:
+        self.push_bound = bound
+        self._apply_push_interval()
+
+    def _apply_push_interval(self):
+        """按推送状态调整轮询频率：绑定成功降频兜底，否则保持快速轮询"""
+        if self.push_bound:
+            new_interval = timedelta(seconds=COORDINATOR_PUSH_FALLBACK_INTERVAL)
+        else:
+            new_interval = timedelta(seconds=COORDINATOR_UPDATE_INTERVAL)
+        if self.update_interval != new_interval:
+            self.update_interval = new_interval
+            _LOGGER.info("轮询间隔调整为 %s 秒（推送%s）",
+                         int(new_interval.total_seconds()),
+                         "已绑定" if self.push_bound else "未绑定")
+
+    def _handle_properties_push(self, iot_id: str, items: dict) -> None:
+        """收到属性推送：立即合并进本地缓存并通知实体"""
+        if not iot_id or not items:
+            return
+        existing = self.device_properties.get(iot_id, {})
+        merged = {**existing, **items}
+        # 深合并单元内属性：推送可能只带变化字段，需与已有值叠加
+        for key, val in items.items():
+            old = existing.get(key)
+            if isinstance(old, dict) and isinstance(val, dict):
+                merged[key] = {**old, **val}
+        self.device_properties[iot_id] = merged
+        _LOGGER.debug("推送合并属性 iot_id=%s keys=%s", iot_id, list(items.keys()))
+        self.async_update_listeners()
+
+    def async_stop_push(self) -> None:
+        if self.push_client is not None:
+            try:
+                self.push_client.stop()
+            except Exception:  # noqa: BLE001
+                pass
+            self.push_client = None
+        self.push_bound = False
+
+    async def _async_refresh_extras(self) -> None:
+        """低频刷新场景/定时/通知配置（30 分钟一次，失败不阻塞主刷新）"""
+        now = time.monotonic()
+        if now - self._last_extras_refresh < EXTRAS_REFRESH_INTERVAL:
+            return
+        self._last_extras_refresh = now
+        iot_id = self.devices[0].get("iotId", "") if self.devices else ""
+        try:
+            self.scenes = await self.api.async_get_scenes()
+            _LOGGER.debug("刷新场景 %d 个", len(self.scenes))
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.debug("刷新场景失败: %s", e)
+        if iot_id:
+            try:
+                self.timing_scenes = await self.api.async_get_timing_scenes(iot_id)
+            except Exception as e:  # noqa: BLE001
+                _LOGGER.debug("刷新定时场景失败: %s", e)
+        try:
+            self.notice_config = await self.api.async_get_notice_config()
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.debug("刷新通知配置失败: %s", e)
 
     async def _async_update_data(self) -> dict:
         try:
+            # 推送不可用时按间隔重试启动
+            if (self.push_enabled and not self.push_bound
+                    and time.monotonic() - self._last_push_retry > PUSH_RETRY_INTERVAL):
+                await self.async_setup_push()
+
             token_refreshed = False
             if not self.api.iot_token:
                 try:
@@ -239,9 +417,22 @@ class SlacCoordinator(DataUpdateCoordinator):
                 except Exception as e:
                     _LOGGER.debug("Device detail fetch failed: %s", e)
 
-            data = {"devices": self.devices, "properties": self.device_properties, "weather": weather, "device_detail": self.device_detail}
-            _LOGGER.info("Updated %d devices, %d properties, weather=%s",
-                         len(self.devices), len(self.device_properties), bool(weather))
+            # 低频刷新场景/通知配置（内部 30 分钟限流）
+            await self._async_refresh_extras()
+
+            data = {
+                "devices": self.devices,
+                "properties": self.device_properties,
+                "weather": weather,
+                "device_detail": self.device_detail,
+                "scenes": self.scenes,
+                "timing_scenes": self.timing_scenes,
+                "notice_config": self.notice_config,
+                "push_bound": self.push_bound,
+            }
+            _LOGGER.info("Updated %d devices, %d properties, weather=%s, push=%s",
+                         len(self.devices), len(self.device_properties), bool(weather),
+                         "bound" if self.push_bound else "off")
             return data
         except Exception as e:
             raise UpdateFailed(f"Update failed: {e}") from e

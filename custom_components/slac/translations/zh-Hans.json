@@ -23,7 +23,8 @@
         "data": {
           "phone": "手机号",
           "password": "密码",
-          "enable_weather": "启用天气服务"
+          "enable_weather": "启用天气服务",
+          "enable_push": "启用实时推送（长连接，减少轮询）"
         }
       },
       "location": {
@@ -76,11 +77,44 @@
         "data": {
           "enable_weather": "启用天气服务"
         }
+      },
+      "push_toggle": {
+        "title": "开关实时推送",
+        "description": "启用或关闭 MQTT 长连接推送（当前：{current}）",
+        "data": {
+          "enable_push": "启用实时推送"
+        }
       }
     },
     "error": {
       "login_failed": "登录失败，请检查手机号和密码",
       "cannot_connect": "无法连接服务器"
+    }
+  },
+  "services": {
+    "fire_scene": {
+      "name": "执行场景",
+      "description": "按场景 ID 触发云端场景",
+      "fields": {
+        "scene_id": {
+          "name": "场景 ID",
+          "description": "要触发的场景 ID"
+        },
+        "entry_id": {
+          "name": "配置项 ID",
+          "description": "配置了多个账号时指定配置项 ID（可选）"
+        }
+      }
+    },
+    "get_speaker_code": {
+      "name": "获取音箱配对码",
+      "description": "获取当前账号的华为音箱配对码（vcode）",
+      "fields": {
+        "entry_id": {
+          "name": "配置项 ID",
+          "description": "配置了多个账号时指定配置项 ID（可选）"
+        }
+      }
     }
   },
   "entity": {

@@ -17,6 +17,7 @@ from .const import (
     CONF_ENABLE_WEATHER,
     CONF_IDENTITY_ID,
     CONF_IOT_TOKEN,
+    CONF_IOT_TOKEN_EXPIRE,
     CONF_PASSWORD,
     CONF_PHONE,
     CONF_PROVINCE,
@@ -24,6 +25,7 @@ from .const import (
     CONF_SUB_LOCALITY,
     COORDINATOR_PUSH_FALLBACK_INTERVAL,
     COORDINATOR_UPDATE_INTERVAL,
+    DEFAULT_IOT_TOKEN_EXPIRE,
     DOMAIN,
     PUSH_RETRY_INTERVAL,
 )
@@ -33,6 +35,9 @@ _LOGGER = logging.getLogger(__name__)
 
 # 场景/通知配置等低频数据的刷新间隔（秒）
 EXTRAS_REFRESH_INTERVAL = 1800
+
+# 启动时最多等这么久去备好会话并跑完首轮刷新（单次请求 REQUEST_TIMEOUT=30，留出余量）
+PRIME_TIMEOUT = 45
 
 SERVICES_REGISTERED = False
 
@@ -52,6 +57,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         iot_token = tokens.get("iot_token")
         if iot_token:
             data[CONF_IOT_TOKEN] = iot_token
+        expire = tokens.get("iot_token_expire")
+        if expire:
+            data[CONF_IOT_TOKEN_EXPIRE] = int(expire)
         hass.config_entries.async_update_entry(entry, data=data)
         _LOGGER.info("Persisted refreshed tokens to config entry")
 
@@ -66,27 +74,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         api.set_login_credentials(phone, password)
     stored_iot = entry.data.get(CONF_IOT_TOKEN, "")
     if stored_iot:
-        # expires_in=0 标记为"不确定签发时间"，让 is_token_expiring() 兜底触发刷新
-        api.set_iot_token(stored_iot, expires_in=0)
-        _LOGGER.info("Restored IoT token, starting immediate background refresh...")
-        async def _do_initial_refresh():
-            try:
-                success = await api.async_refresh_iot_token()
-                if success:
-                    _LOGGER.info("Initial token refresh succeeded, new expiry in ~20h")
-                else:
-                    _LOGGER.warning("Initial token refresh returned False, will retry via coordinator")
-            except Exception as e:
-                _LOGGER.warning("Initial token refresh failed: %s", e)
-        hass.async_create_background_task(_do_initial_refresh(), "slac_initial_token_refresh")
-    elif refresh_token:
-        async def _do_refresh_only():
-            try:
-                await api.async_refresh_iot_token()
-                _LOGGER.info("Initial token refresh from refresh_token succeeded")
-            except Exception as e:
-                _LOGGER.warning("Initial token refresh failed: %s", e)
-        hass.async_create_background_task(_do_refresh_only(), "slac_initial_token_refresh")
+        # 按条目里存的真实到期时间恢复 token 寿命；旧条目没有该字段时按云端标称
+        # 20h 兜底。v1.3.0 用 expires_in=0 把存下来的 token 一律标成"已过期"，
+        # 启动即强制刷新；而那条刷新链路必然失败(26101)，失败分支还会把这份好
+        # token 清空 —— 属性因此抓不到，空调实体一个都建不出来。
+        stored_expire = entry.data.get(CONF_IOT_TOKEN_EXPIRE)
+        try:
+            expires_in = (
+                max(0, int(stored_expire) - int(time.time()))
+                if stored_expire
+                else DEFAULT_IOT_TOKEN_EXPIRE
+            )
+        except (TypeError, ValueError):
+            expires_in = DEFAULT_IOT_TOKEN_EXPIRE
+        api.set_iot_token(stored_iot, expires_in=expires_in)
+        _LOGGER.info("已恢复 IoT token，剩余有效期约 %s 秒", expires_in)
 
     devices = []
     if identity_id:
@@ -112,16 +114,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     coordinator = SlacCoordinator(hass, api, entry, devices)
 
-    # 不阻塞 HA 启动，后台执行首次数据刷新
-    async def _first_refresh_wrapper():
-        try:
-            await coordinator.async_config_entry_first_refresh()
-            _LOGGER.info("First coordinator refresh completed")
-        except Exception as e:
-            _LOGGER.warning("First coordinator refresh failed: %s", e)
-            coordinator.last_update_success = False
+    # 先把会话和首轮数据准备好，再建平台：climate 平台靠 coordinator.device_properties
+    # 里的 Info{内机地址} 判断有哪些空调机，而这些属性必须拿有效 iotToken 才抓得到。
+    # 原来是"后台刷新 + 立刻建平台"并发跑，属性还没到手平台就建完了，空调实体会整个缺失。
+    try:
+        await asyncio.wait_for(api.async_ensure_valid_token(), timeout=PRIME_TIMEOUT)
+    except Exception as e:  # noqa: BLE001
+        _LOGGER.warning("启动时准备会话失败，交由定时刷新重试：%s", e)
 
-    hass.async_create_background_task(_first_refresh_wrapper(), "slac_first_refresh")
+    try:
+        await asyncio.wait_for(coordinator.async_refresh(), timeout=PRIME_TIMEOUT)
+        _LOGGER.info("First coordinator refresh completed")
+    except Exception as e:  # noqa: BLE001
+        _LOGGER.warning("First coordinator refresh failed: %s", e)
+        coordinator.last_update_success = False
 
     # 启动长连接推送（后台任务，失败不阻塞配置项加载）
     enable_push = entry.data.get(CONF_ENABLE_PUSH, True)
@@ -320,27 +326,13 @@ class SlacCoordinator(DataUpdateCoordinator):
                     and time.monotonic() - self._last_push_retry > PUSH_RETRY_INTERVAL):
                 await self.async_setup_push()
 
-            token_refreshed = False
-            if not self.api.iot_token:
-                try:
-                    await self.api.async_refresh_iot_token()
-                    token_refreshed = True
-                except Exception as e:
-                    _LOGGER.warning("Token refresh failed: %s", e)
-            elif self.api.is_token_expiring():
-                _LOGGER.info("IoT token expiring, refreshing...")
-                try:
-                    await self.api.async_refresh_iot_token()
-                    token_refreshed = True
-                except Exception as e:
-                    _LOGGER.warning("Token refresh failed: %s", e)
-
-            if not self.api.iot_token and self.api.has_login_credentials():
-                _LOGGER.warning("Token unavailable, attempting auto re-login...")
-                if await self.api.async_auto_login():
-                    _LOGGER.info("Auto re-login successful, new tokens persisted")
+            # 会话续期：token 缺失或临近过期（剩余 <1h）时确保有一个可用的 iotToken。
+            # 刷新链路走不通会自动回落到账号密码重新登录，且不会清掉现有 token。
+            if not self.api.iot_token or self.api.is_token_expiring():
+                if await self.api.async_ensure_valid_token():
+                    _LOGGER.debug("IoT token 已续期")
                 else:
-                    _LOGGER.warning("Auto re-login failed, credentials may be invalid")
+                    _LOGGER.warning("IoT token 续期失败，本轮数据可能不完整")
 
             try:
                 device_list = await self.api.async_get_device_list_custom()

@@ -4,6 +4,9 @@ PLATFORM_NAME = "三菱智能空调"
 CONF_IDENTITY_ID = "identity_id"
 CONF_REFRESH_TOKEN = "refresh_token"
 CONF_IOT_TOKEN = "iot_token"
+# iotToken 的到期时间戳（秒），随 token 一起写进配置条目；
+# 重启后据此判断 token 是否真的快过期，避免把刚登录拿到的好 token 判成"已过期"
+CONF_IOT_TOKEN_EXPIRE = "iot_token_expire"
 CONF_PHONE = "phone"
 CONF_PASSWORD = "password"
 CONF_PROVINCE = "province"
@@ -85,4 +88,8 @@ PUSH_RETRY_INTERVAL = 300
 # 当剩余时间 < 1h 时触发刷新，确保永不过期且预留充足重试时间
 # ⚠️ 20h 有效期未经长时间验证，如遇 token 过期报错，可适当调大此值
 TOKEN_REFRESH_INTERVAL = 1 * 3600  # 提前1小时刷新（即19小时刷新）
+
+# 云端标称的 iotToken 有效期（iotTokenExpire=72000s）。
+# 旧配置条目没存到期时间时按此兜底，避免把存下来的 token 当成"已过期"而强制刷新
+DEFAULT_IOT_TOKEN_EXPIRE = 72000
 

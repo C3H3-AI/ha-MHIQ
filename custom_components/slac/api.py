@@ -302,6 +302,7 @@ class SlacApi:
                     "identity_id": self._identity_id,
                     "refresh_token": self._refresh_token,
                     "iot_token": self._iot_token,
+                    "iot_token_expire": self._iot_token_expire,
                 })
         return result
 
@@ -342,13 +343,38 @@ class SlacApi:
                             "identity_id": self._identity_id,
                             "refresh_token": self._refresh_token,
                             "iot_token": self._iot_token,
+                            "iot_token_expire": self._iot_token_expire,
                         })
                     return bool(self._iot_token)
                 return False
             except Exception as e:
-                _LOGGER.error("Token refresh failed: %s", e)
-                self.invalidate_iot_token()
+                # 这条失败只说明"用 refreshToken 换新会话"走不通：createSessionByAuthCode
+                # 的 authCode 必须是 OA 登录返回的 sid（会话 Id），而 refreshToken 不是
+                # 会话 Id，云端固定回 26101「会话 Id 不存在」。此时手上那份 iotToken
+                # 很可能仍然可用，绝不能顺手清掉（清掉会导致属性抓不到、空调实体全丢）；
+                # 确实需要换会话时，交给 async_ensure_valid_token() 用账号密码重新登录。
+                _LOGGER.warning("Token refresh failed: %s", e)
                 return False
+
+    async def async_ensure_valid_token(self) -> bool:
+        """确保手上有可用的 iotToken：先看现成的够不够用，再刷新，最后才重新登录。
+
+        刷新（createSessionByAuthCode + refreshToken 冒充 OA 会话）在云端走不通，
+        实测固定返回 26101「会话 Id 不存在」；真正可靠的办法是拿账号密码重新走一遍
+        登录（OA 拿 sid → createSession），这条路才是换会话的正确姿势。
+        """
+        if self._iot_token and not self.is_token_expiring():
+            return True
+        if await self.async_refresh_iot_token():
+            return True
+        if not self.has_login_credentials():
+            _LOGGER.warning("无可用 iotToken，且配置里没有账号密码，无法续期")
+            return False
+        _LOGGER.info("刷新 iotToken 走不通，改用账号密码重新登录换取新会话")
+        if not await self.async_auto_login():
+            _LOGGER.warning("重新登录失败，账号或密码可能已失效")
+            return False
+        return bool(self._iot_token)
 
     async def async_get_device_list(self) -> list:
         body = make_iot_request_body(
@@ -581,6 +607,11 @@ class SlacApi:
     @property
     def iot_token(self) -> str:
         return self._iot_token
+
+    @property
+    def iot_token_expire(self) -> int:
+        """iotToken 到期时间戳（秒），供上层持久化用。"""
+        return self._iot_token_expire
 
     def is_token_expiring(self) -> bool:
         return (self._iot_token_expire - int(time.time())) < TOKEN_EXPIRE_THRESHOLD

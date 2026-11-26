@@ -267,7 +267,6 @@ class SlacClimate(CoordinatorEntity, ClimateEntity):
         coordinator: SlacCoordinator = self.coordinator
         items = {
             "InternalAddress": self._internal_addr,
-            "PowerSwitch": 1,
             "TargetTemperature": temp,
         }
         try:
@@ -279,7 +278,7 @@ class SlacClimate(CoordinatorEntity, ClimateEntity):
     async def async_set_fan_mode(self, fan_mode: str) -> None:
         wind = FAN_MODE_TO_AC.get(fan_mode, 0)
         coordinator: SlacCoordinator = self.coordinator
-        items = {"InternalAddress": self._internal_addr, "PowerSwitch": 1, "WindSpeed": wind}
+        items = {"InternalAddress": self._internal_addr, "WindSpeed": wind}
         try:
             await coordinator.api.async_set_properties(self._iot_id, items)
             await coordinator.async_request_refresh()
@@ -289,7 +288,7 @@ class SlacClimate(CoordinatorEntity, ClimateEntity):
     async def async_set_swing_mode(self, swing_mode: str) -> None:
         horizontal = SWING_MODE_TO_AC.get(swing_mode, 0)
         coordinator: SlacCoordinator = self.coordinator
-        items = {"InternalAddress": self._internal_addr, "PowerSwitch": 1, "Horizontal": horizontal}
+        items = {"InternalAddress": self._internal_addr, "Horizontal": horizontal}
         try:
             await coordinator.api.async_set_properties(self._iot_id, items)
             await coordinator.async_request_refresh()

@@ -260,6 +260,18 @@ class SlacClimate(CoordinatorEntity, ClimateEntity):
         except Exception as e:
             _LOGGER.error("Failed to set HVAC mode: %s", e)
 
+    def _power_items(self) -> dict:
+        """Return the power field only when the unit is already running.
+
+        The cloud applies ``PowerSwitch: 1`` by turning the indoor unit on, so
+        sending it with a temperature, fan or swing change would start an air
+        conditioner the user had switched off. While the unit is off these
+        changes carry the new value alone and take effect when it is turned on.
+        """
+        if self.hvac_mode in (HVACMode.OFF, None):
+            return {}
+        return {"PowerSwitch": 1}
+
     async def async_set_temperature(self, **kwargs: Any) -> None:
         temp = kwargs.get(ATTR_TEMPERATURE)
         if temp is None:
@@ -267,8 +279,8 @@ class SlacClimate(CoordinatorEntity, ClimateEntity):
         coordinator: SlacCoordinator = self.coordinator
         items = {
             "InternalAddress": self._internal_addr,
-            "PowerSwitch": 1,
             "TargetTemperature": temp,
+            **self._power_items(),
         }
         try:
             await coordinator.api.async_set_properties(self._iot_id, items)
@@ -279,7 +291,7 @@ class SlacClimate(CoordinatorEntity, ClimateEntity):
     async def async_set_fan_mode(self, fan_mode: str) -> None:
         wind = FAN_MODE_TO_AC.get(fan_mode, 0)
         coordinator: SlacCoordinator = self.coordinator
-        items = {"InternalAddress": self._internal_addr, "PowerSwitch": 1, "WindSpeed": wind}
+        items = {"InternalAddress": self._internal_addr, "WindSpeed": wind, **self._power_items()}
         try:
             await coordinator.api.async_set_properties(self._iot_id, items)
             await coordinator.async_request_refresh()
@@ -289,7 +301,7 @@ class SlacClimate(CoordinatorEntity, ClimateEntity):
     async def async_set_swing_mode(self, swing_mode: str) -> None:
         horizontal = SWING_MODE_TO_AC.get(swing_mode, 0)
         coordinator: SlacCoordinator = self.coordinator
-        items = {"InternalAddress": self._internal_addr, "PowerSwitch": 1, "Horizontal": horizontal}
+        items = {"InternalAddress": self._internal_addr, "Horizontal": horizontal, **self._power_items()}
         try:
             await coordinator.api.async_set_properties(self._iot_id, items)
             await coordinator.async_request_refresh()

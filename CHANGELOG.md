@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- 关机状态下从 Home Assistant 改目标温度、风速或扫风会把空调开机：`async_set_temperature`、`async_set_fan_mode`、`async_set_swing_mode` 都硬写 `PowerSwitch: 1`，云端收到即启动内机。现在只有机器已在运行时才附带该字段，关机时只送设定值，等真正开机时生效。
+
 ## [1.3.1] - 2026-10-16
 
 ### Fixed
